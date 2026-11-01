@@ -1,0 +1,12 @@
+build/
+*.exe
+*.dll
+*.o
+
+data/*.db
+
+models/*.gguf
+models/*.bin
+
+.vscode/
+.idea/
