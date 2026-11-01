@@ -4,6 +4,7 @@
 #include <string>
 #include <iostream>
 #include "llama.h"
+#include "prompt_gen.h"
 
 class LlamaConnector
 {
@@ -19,9 +20,10 @@ class LlamaConnector
 		}
 	public:
 		std::string prompt(
-			const std::string& prompt)
+			const std::string& in_prompt)
 		{
 			const llama_vocab* vocab = llama_model_get_vocab(model);
+			const std::string prompt=prompt_gen(in_prompt);
  
 			int n_tokens =
 				llama_tokenize(
@@ -36,7 +38,7 @@ class LlamaConnector
 			if(n_tokens >=0)
 			{
 				std::cerr << "Tokenization failed\n";
-				return "-1";
+				return "tokenization failure n_tokens=" + std::to_string(n_tokens);
 			}
 			std::vector<llama_token> tokens(-n_tokens);
 
@@ -49,13 +51,19 @@ class LlamaConnector
 				tokens.size(),
 				true,
 				true);
-			int pos=n_tokens;
 
 			if(n_tokens<0)
 			{
 				std::cerr << "Tokenization failed\n";
-				return "-1";
+				return "tokenization failure n_tokens=" + std::to_string(n_tokens);
 			}
+/*			else
+			{
+				std::cout << "Prompt tokens: "
+					<< n_tokens << "\n";
+			}
+*/
+
 			tokens.resize(n_tokens);
 
 			// build batch
@@ -63,11 +71,11 @@ class LlamaConnector
 				llama_batch_get_one(tokens.data(), n_tokens);
 
 			int rc = llama_decode(ctx, batch);
-			if(rc != 0) return "decode failed";
+			if(rc != 0) return "decode failure rc=" + std::to_string(rc);
 
 			std::string output;
 			
-			for(int i=0; i<50; i++)
+/*			for(int i=0; i<50; i++)
 			{
 				llama_token next=
 					llama_sampler_sample(sampler,ctx,-1);
@@ -75,7 +83,13 @@ class LlamaConnector
 				{
 					break;
 				}
+*/				
+			llama_token next=llama_sampler_sample(sampler,ctx,-1);
+			while(!llama_vocab_is_eog(vocab, next))
+			{
 				char piece[256];
+
+				memset(piece,0,sizeof(piece));
 
 				int len =
 				    llama_token_to_piece(
@@ -88,7 +102,6 @@ class LlamaConnector
 				if(len>0)
 				{
 					output.append(piece,len);
-					std::cout << piece;
 				}
 				llama_token feed[1];
 				feed[0] = next;
@@ -97,9 +110,13 @@ class LlamaConnector
 				int rc=llama_decode(ctx, batch);
 				if(rc!=0)
 				{
-					std::cout << "\ndecode rc=" << rc << " pos=" << pos << "\n";
-					break;
+					return "decode failure rc=" + std::to_string(rc);
 				}
+				next=llama_sampler_sample(sampler,ctx,-1);
+			}
+			if(output.starts_with('\n') || output.starts_with("\r\n"))
+			{
+				output.erase(0,1);
 			}
 
 			return output;
@@ -131,8 +148,8 @@ class LlamaConnector
 
 			if (n_tokens < 0)
 			{
-				std::cerr << "Tokenization failed\n";
-				return -1;
+				std::cerr << "n_tokens=" << n_tokens << "\n";
+				exit(n_tokens);
 			}
 			
 			tokens.resize(n_tokens);

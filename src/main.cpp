@@ -1,7 +1,8 @@
 #include <iostream>
 #include "llama.h"
-#include "llm.hpp"
-#include <sqlite3.h>
+#include "llm.h"
+#include "sql.h"
+#include "defines.h"
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -23,143 +24,63 @@ int callback_firstcol(
 	return 0;
 }
 
-std::string GetTimestamp_STR()
-{
-		auto now = std::chrono::system_clock::now();
 
-		std::time_t t =
-	std::chrono::system_clock::to_time_t(now);
-
-		std::stringstream ss;
-
-		ss << std::put_time(
-	std::localtime(&t),
-	"%Y-%m-%d %H:%M:%S");
-
-		return ss.str();
-}
-
-std::string LL_timestamp_STR(long long tsin)
-{
-	std::time_t t = static_cast<std::time_t>(tsin);
-	std::tm* local = std::localtime(&t);
-	std::stringstream ss;
-	ss << std::put_time(local, "%y-%m-%d %H:%M%s");
-	return ss.str();
-}
-
-long long GetTimestamp_LL()
-{
-	return std::chrono::duration_cast<
-		std::chrono::seconds>(
-		std::chrono::system_clock::now()
-			.time_since_epoch()).count();
-}
 
 int main()
 {
 	std::string prompt = "", sqlin = "", sqlout = "";
 	std::string user = "Peter Berbec";
+	Message myMessage;
 	bool exittime = false;
-	sqlite3* db;
-	sqlite3_stmt* stmt;
 	long long timestamp;
 	int tokens;
-
 	LlamaConnector llm;
+
 	if(!llm.Initialize("models/qwen2.5-0.5b-instruct-q4_k_m.gguf"))
 	{
 		std::cerr << "Model failed to open\n";
 		return 5;
 	}
 
-/*
-	std::cout << llm.prompt("<|im_start|>system\nYou are a helpful assistant.\n<|im_end|>\n<|im_start|>user\nWhat country is Audi from?\n<|im_end|><|im_start|>assistant");
 
-	return 0;
-*/	int rds = sqlite3_open("data/directio.net.db", &db);
-
-	if(rds)
-	{
-		std::cerr << "Database failed to open\n";
-		return 1;
-	}
-
-	const char* sql = 
-		"CREATE TABLE IF NOT EXISTS messages ("
-		"id INTEGER PRIMARY KEY AUTOINCREMENT,"
-		"role TEXT,"
-		"content TEXT,"
-		"created_at INTEGER"
-		");";
-
-	char* errMsg = nullptr;
-
-	rds = sqlite3_exec(
-			db,
-			sql,
-			nullptr,
-			nullptr,
-			&errMsg);
-
-	if(rds != SQLITE_OK)
-	{
-		std::cerr << "SQL Error: " << errMsg << "\n";
-		sqlite3_free(errMsg);
-	}
-
-	std::cout << "Database Initialized\n";
-
+	myMessage.person = "System";
+	myMessage.text = "Enter prompt. \"!quit\" to quit.";
+	myMessage.time = GetTimestamp_LL();
+	myMessage.OutputMessage();
 	while(!exittime)
 	{
-		std::cout << "Enter prompt. \"quit\" to quit.\n";
-		std::getline(std::cin, prompt);
-		timestamp=GetTimestamp_LL();
+		RDSConnector myRDS;
+		myMessage.OutputHeader(user);
+		myMessage.person = user;
+		std::getline(std::cin, myMessage.text);
+		myMessage.time = GetTimestamp_LL();
 
-		sqlin=
-			"INSERT INTO messages (role, content, created_at) "
-			"VALUES ('" + user + "','" + prompt + "', " + std::to_string(timestamp) + ");"; 
-
-		if(prompt == "quit")
+		if(myMessage.text=="!quit")
 		{
 			exittime = true;
 			continue;
 		}
-
-		rds = sqlite3_exec(
-				db,
-				sqlin.c_str(),
-				nullptr,
-				nullptr,
-				&errMsg);
-
-		if(rds != SQLITE_OK)
+		else if(myMessage.text=="!history")
 		{
-			std::cerr << "SQL Error: " << errMsg << "\n";
-			sqlite3_free(errMsg);
+			myRDS.PrintHistory();
+			continue;
 		}
-
-		sqlin = "SELECT role, content, created_at "
-		"FROM messages "
-		"ORDER BY created_at DESC "
-		"LIMIT 1;";
-
-		sqlite3_prepare_v2(db, sqlin.c_str(), -1, &stmt, nullptr);
-		if(sqlite3_step(stmt) == SQLITE_ROW)
+		// store the message
+		if(!myRDS.StoreMessage(myMessage))
 		{
-			std::cout << "last message in database:\n";
-			std::string role = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-			std::string content = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-			long long timestamp = sqlite3_column_int64(stmt, 2);
-			std::cout << "[" << role << "][" << LL_timestamp_STR(timestamp) << "] " << content << "\n";
-			prompt = content;
+			return -1;
 		}
-
-		std::cout << "LLM Response: " << llm.prompt(prompt) << "\n";
-		sqlite3_finalize(stmt);
-
+		// Let's get the reply
+		myMessage.person = "LLM";
+		myMessage.text = llm.prompt(prompt);
+		myMessage.time = GetTimestamp_LL();
+		if(!myRDS.StoreMessage(myMessage))
+		{
+			return -1;
+		}
+		myMessage.OutputMessage();
 	}
-	std::cout << "Goodbye\n";
+	myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),"Goodbye");
 
 	return 0;
 }
