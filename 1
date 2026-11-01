@@ -1,0 +1,106 @@
+#pragma once
+
+#include <vector>
+#include <string>
+#include "llama.h"
+
+class LlamaConnector
+{
+	private:
+		llama_model* model;
+		llama_context* ctx;
+		llama_sampler* sampler;
+		static void SilentLogger(
+			enum ggml_log_level level,
+			const char * text,
+			void * user_data)
+		{
+		}
+	public:
+		std::string prompt(
+			const std::string& prompt)
+		{
+			const llama_vocab* vocab = llama_model_get_vocab(model);
+
+			// tokenize
+			std::vector<llama_token> tokens(512);
+
+			int n_tokens =
+				llama_tokenize(
+				vocab,
+				prompt.c_str(),
+				prompt.size(),
+				tokens.data(),
+				tokens.size(),
+				true,
+				true);
+
+			tokens.resize(n_tokens);
+
+			// build batch
+			llama_batch batch =
+				llama_batch_get_one(tokens.data(), n_tokens);
+
+			int rc = llama_decode(ctx, batch);
+			std::cout << "decode rc=" << rc << "\n";
+
+			return 0; //std::string(piece,len);
+		}
+		int tokenize(const std::string& prompt)
+		{
+			const llama_vocab* vocab =
+				llama_model_get_vocab(model);
+
+			std::vector<llama_token> tokens(512);
+
+			int n_tokens = llama_tokenize(
+				vocab,
+				prompt.c_str(),
+				prompt.size(),
+				tokens.data(),
+				tokens.size(),
+				true,
+				true);
+
+			if (n_tokens < 0)
+			{
+				return -1;
+			}
+			
+			tokens.resize(n_tokens);
+			
+			return n_tokens;
+		}
+		~LlamaConnector()
+		{
+			if (sampler)	llama_sampler_free(sampler);
+			if (ctx)	llama_free(ctx);
+			if (model)	llama_model_free(model);
+					llama_backend_free();
+		}
+		bool Initialize(const std::string& modelPath)
+		{
+			llama_backend_init();
+			llama_log_set(SilentLogger, nullptr);
+			auto mparams = llama_model_default_params();
+			model = llama_model_load_from_file(
+				modelPath.c_str(), mparams);
+			if (!model) return false;
+			auto cparams = llama_context_default_params();
+			ctx = llama_init_from_model(
+				model, cparams);
+			if (!ctx) return false;
+			auto sparams = llama_sampler_chain_default_params();
+			sampler = llama_sampler_chain_init( sparams);
+			llama_sampler_chain_add(
+				sampler, llama_sampler_init_top_k(50));
+			llama_sampler_chain_add(
+				sampler, llama_sampler_init_top_p(0.9f, 1));
+			llama_sampler_chain_add(
+				sampler, llama_sampler_init_temp(0.8f));
+			llama_sampler_chain_add(
+				sampler, llama_sampler_init_dist(1234));
+
+			return true;
+		}
+};

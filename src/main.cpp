@@ -1,61 +1,11 @@
 #include <iostream>
 #include "llama.h"
+#include "llm.hpp"
 #include <sqlite3.h>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
-
-class LlamaConnector
-{
-	private:
-		llama_model* model;
-		llama_context* ctx;
-		llama_sampler* sampler;
-		static void SilentLogger(
-			enum ggml_log_level level,
-			const char * text,
-			void * user_data)
-		{
-		}
-	public:
-		std::string Prompt(
-			const std::string& prompt);
-		~LlamaConnector()
-		{
-			if (sampler)	llama_sampler_free(sampler);
-			if (ctx)	llama_free(ctx);
-			if (model)	llama_model_free(model);
-					llama_backend_free();
-		}
-		bool Initialize(const std::string& modelPath)
-		{
-			llama_backend_init();
-			llama_log_set(SilentLogger, nullptr);
-			auto mparams = llama_model_default_params();
-			model = llama_model_load_from_file(
-				modelPath.c_str(), mparams);
-			if (!model) return false;
-			auto cparams = llama_context_default_params();
-			ctx = llama_init_from_model(
-				model, cparams);
-			if (!ctx) return false;
-			auto sparams = llama_sampler_chain_default_params();
-			sampler = llama_sampler_chain_init( sparams);
-			llama_sampler_chain_add(
-				sampler, llama_sampler_init_top_k(50));
-			llama_sampler_chain_add(
-				sampler, llama_sampler_init_top_p(0.9f, 1));
-			llama_sampler_chain_add(
-				sampler, llama_sampler_init_temp(0.8f));
-			llama_sampler_chain_add(
-				sampler, llama_sampler_init_dist(1234));
-
-			return true;
-		}
-
-};
-
 
 int callback_firstcol(
 		void* data,
@@ -114,38 +64,20 @@ int main()
 	sqlite3* db;
 	sqlite3_stmt* stmt;
 	long long timestamp;
+	int tokens;
 
 	LlamaConnector llm;
-	llm.Initialize("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
-	return 0;
-	llama_backend_init();
-	llama_log_set(
-			[](enum ggml_log_level, const char *, void*) {}, nullptr
-	);
-	llama_model* model = nullptr;
-	llama_model_params model_params = llama_model_default_params();
-
-	model = llama_model_load_from_file("models/qwen2.5-0.5b-instruct-q4_k_m.gguf", model_params);
-
-	if(!model)
+	if(!llm.Initialize("models/qwen2.5-0.5b-instruct-q4_k_m.gguf"))
 	{
 		std::cerr << "Model failed to open\n";
 		return 5;
 	}
-	std::cout << "model loaded\n";
 
-	llama_context_params ctx_params =
-		llama_context_default_params();
+/*
+	std::cout << llm.prompt("<|im_start|>system\nYou are a helpful assistant.\n<|im_end|>\n<|im_start|>user\nWhat country is Audi from?\n<|im_end|><|im_start|>assistant");
 
-	llama_context* ctx = llama_init_from_model(model, ctx_params);
-	if(!ctx)
-	{
-		std::cerr << "Failed to create context\n";
-		return 1;
-	}
-	std::cout << "Context Created\n";
-
-	int rds = sqlite3_open("data/directio.net.db", &db);
+	return 0;
+*/	int rds = sqlite3_open("data/directio.net.db", &db);
 
 	if(rds)
 	{
@@ -215,20 +147,19 @@ int main()
 		sqlite3_prepare_v2(db, sqlin.c_str(), -1, &stmt, nullptr);
 		if(sqlite3_step(stmt) == SQLITE_ROW)
 		{
-			std::cout << "You entered:\n";
+			std::cout << "last message in database:\n";
 			std::string role = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
 			std::string content = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
 			long long timestamp = sqlite3_column_int64(stmt, 2);
 			std::cout << "[" << role << "][" << LL_timestamp_STR(timestamp) << "] " << content << "\n";
+			prompt = content;
 		}
 
+		std::cout << "LLM Response: " << llm.prompt(prompt) << "\n";
 		sqlite3_finalize(stmt);
 
 	}
 	std::cout << "Goodbye\n";
 
-	llama_free(ctx);
-	llama_model_free(model);
-	llama_backend_free();
 	return 0;
 }
