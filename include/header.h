@@ -39,6 +39,7 @@ class RDSConnector
 		sqlite3_stmt* stmt;
 		int callback_firstcol(void* data,int argc,char** argv,char** colNames);
 	public:
+		sqlite3* GetDB();
 		bool StoreMessage(Message inMessage);
 		~RDSConnector();
 		bool Initialize();
@@ -54,11 +55,13 @@ class LlamaConnector
 		llama_context* ctx;
 		llama_sampler* sampler;
 		static void SilentLogger(enum ggml_log_level level,const char * text,void * user_data);
-		LLMResponse ParseResponse(const std::string& jsonText);
+		LLMResponse ParseResponse(const std::string jsonText);
 	public:
+		std::vector<float> GetEmbedding(const std::string& text);
 		std::string prompt(const std::string& in_prompt, RDSConnector&, Message&);
 		int tokenize(const std::string& prompt);
 		~LlamaConnector();
+		bool InitializeM(const std::string& modelPath, bool em, int nctx);
 		bool Initialize(const std::string& modelPath);
 };
 std::string prompt_gen(const std::string user_prompt, RDSConnector&);

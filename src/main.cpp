@@ -16,12 +16,11 @@ int main()
 	bool exittime = false;
 	std::int64_t timestamp;
 	int tokens;
-	LlamaConnector llm;
+	LlamaConnector llm, decide;
 
-	if(!llm.Initialize("models/qwen2.5-0.5b-instruct-q4_k_m.gguf"))
-//	if(!llm.Initialize("models/Qwen3.8-0.6B.Q4_K_M.gguf"))
+	if(!llm.Initialize("models/Qwen2.5-0.5b-instruct-q4_k_m.gguf"))
 	{
-		std::cerr << "Model failed to open\n";
+		std::cerr << "Main Model failed to open\n";
 		return 5;
 	}
 
@@ -29,13 +28,21 @@ int main()
 	if(!myRDS.Initialize())
 	{
 		std::cerr << "RDS failed to open\n";
-		return 5;
+		return 9;
 	}
 
-	myMessage.person = "System";
-	myMessage.text = "Enter prompt. \"!quit\" to quit.";
-	myMessage.time = GetTimestamp_LL();
-	myMessage.OutputMessage();
+
+	sqlite3_enable_load_extension(myRDS.GetDB(), 1);
+	char* err = nullptr;
+	sqlite3_load_extension(myRDS.GetDB(), "C:\\msys64\\home\\peter\\AI_coding\\directio.net\\lib\\vec0.dll", nullptr, &err);
+	if(err)
+	{
+		std::cerr << err << "\n";
+	}
+	MemoryC memc;
+	memc.Initialize(myRDS);
+	myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),
+				"Enter prompt. \"!help\" for help.");
 	while(!exittime)
 	{
 		myMessage.time = GetTimestamp_LL();
@@ -50,21 +57,52 @@ int main()
 			exittime = true;
 			continue;
 		}
+		else if(myMessage.text.starts_with("!help"))
+		{
+			myMessage.OutputMessage("!help",GetTimestamp_LL(),
+				"!quit    - to exit");
+			myMessage.OutputMessage("!help",GetTimestamp_LL(),
+				"!memory  - to show all memories");
+			myMessage.OutputMessage("!help",GetTimestamp_LL(),
+				"!history - to show all history");
+			myMessage.OutputMessage("!help",GetTimestamp_LL(),
+				"!forget  - to clear memory/conversation history");
+			myMessage.OutputMessage("!help",GetTimestamp_LL(),
+				"!model   - to switch models (todo)");
+			continue;
+		}
 		else if(myMessage.text.starts_with("!forget"))
 		{
 			myRDS.ForgetHistory();
-			myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),
+			memc.ForgetMemories();
+			myMessage.OutputMessage("!forget",GetTimestamp_LL(),
 					"Conversation history cleared.");
+			continue;
+		}
+		else if(myMessage.text.starts_with("!mem"))
+		{
+			auto memories = memc.RetrieveAll();
+			for(auto& mem : memories)
+			{
+				std::stringstream ms;
+				ms << "[" << std::setw(3) << std::setfill('0')
+				   << std::to_string(mem.importance) << "] " 
+				   << mem.memory;
+				myMessage.OutputMessage("!memory",GetTimestamp_LL(),
+					ms.str());
+			}
 			continue;
 		}
 		else if(myMessage.text.starts_with("!model"))
 		{
-			myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),
+			myMessage.OutputMessage("!model",GetTimestamp_LL(),
 					"TODO");
 			continue;
 		}
 		else if(myMessage.text.starts_with("!history"))
 		{
+			myMessage.OutputMessage("!history",GetTimestamp_LL(),
+					"");
 			int count = 20;
 			std::stringstream ss(myMessage.text);
 			std::string cmd;
@@ -80,9 +118,7 @@ int main()
 			continue;
 		}
 		myMessage.tokens = llm.tokenize(myMessage.text);
-		// Let's get the reply
 		llm.prompt(myMessage.text,myRDS,llmMessage);
-		// store the messages
 		if(!myRDS.StoreMessage(myMessage))
 		{
 			return -1;

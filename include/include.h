@@ -10,29 +10,330 @@
 #include <nlohmann/json.hpp>
 #include "llama.h"
 
-//prompt_gen.cpp
+//memory.h
 
-struct Memory
+struct MemoryS
 {
 	std::string memory;
 	std::string category;
 	int importance;
 	int64_t created_at;
+	std::vector<float> embedding;
+};
+
+std::string printEmbedding(const std::vector<float>& vec)
+{
+	std::stringstream ss;
+	ss << "[";
+	size_t count = 20;
+	for(size_t i = 0;i < std::min(count, vec.size());++i)
+	{	
+		if(i)
+		{
+			ss << ", ";
+		}
+		ss << vec[i];
+	}
+	ss << ", ...]\n";
+	return ss.str();
+}
+
+void printMemoryS(MemoryS mem_in)
+{
+	std::cout 	<< mem_in.memory << "\n"
+			<< mem_in.category << "\n"
+			<< mem_in.importance << "\n"
+			<< mem_in.created_at << "\n"
+			<< printEmbedding(mem_in.embedding) << "\n";
+}
+
+class MemoryC
+{
+	private:
+		LlamaConnector llmbert;
+		const std::string modelPath = "models/all-minilm-l6-v2_f32.gguf";
+		RDSConnector* innerRDS;
+	public:
+		RDSConnector getRDS()
+		{
+			return *innerRDS;
+		}
+		MemoryS mem;
+		~MemoryC() = default;
+		float CosineSimilarity(
+			const std::vector<float>& a,
+			const std::vector<float>& b)
+		{
+			float dot = 0.0f;
+			float magA = 0.0f;
+			float magB = 0.0f;
+
+			for(size_t i = 0; i < a.size(); ++i)
+			{
+				dot += a[i] * b[i];
+				magA += a[i] * a[i];
+				magB += b[i] * b[i];
+			}
+
+			return dot /
+				(std::sqrt(magA)
+				* std::sqrt(magB));
+		}
+		void makeTables()
+		{
+			std::string mem_table =	std::string(
+				"CREATE TABLE IF NOT EXISTS memories(")+
+				"id INTEGER PRIMARY KEY AUTOINCREMENT,"+
+				"memory TEXT,"+
+				"category TEXT,"+
+				"importance INTEGER,"+
+				"created_at INTEGER"+
+				");";
+			char* errMsg = nullptr;
+			int rc = sqlite3_exec(innerRDS->GetDB(),mem_table.c_str(),nullptr,nullptr,&errMsg);
+			if(rc != SQLITE_OK)
+			{
+				std::cerr << "SQL Error: " << errMsg << "\n";
+				sqlite3_free(errMsg);
+				exit(-1);
+			}
+			std::string embed_table = std::string(
+				"CREATE VIRTUAL TABLE IF NOT EXISTS memory_embeddings\n")+
+				"using vec0("+
+				"embedding FLOAT[384]);";
+			rc = sqlite3_exec(innerRDS->GetDB(),embed_table.c_str(),nullptr,nullptr,&errMsg);
+			if(rc != SQLITE_OK)
+			{
+				std::cerr << "SQL Error: " << errMsg << "\n";
+				sqlite3_free(errMsg);
+				exit(-1);
+			}
+			return;
+		}
+		bool Initialize(RDSConnector& myRDS)
+		{
+			innerRDS = &myRDS;
+			if(!llmbert.InitializeM(modelPath, true, 512))
+			{
+				std::cerr << "Decision Model failed to open\n";
+				return 5;
+			}
+			makeTables();
+			return true;
+		}
+		std::vector<float> Embed(const std::string& text)
+		{
+			return llmbert.GetEmbedding(text);
+		}			
+		void ForgetMemories()
+		{
+			sqlite3_exec(innerRDS->GetDB(),"DROP TABLE IF EXISTS memories;",nullptr,nullptr,nullptr);
+			sqlite3_exec(innerRDS->GetDB(),"DROP TABLE IF EXISTS memory_embeddings;",nullptr,nullptr,nullptr);
+			makeTables();
+		}
+		bool Store()
+		{
+			const char* sqlin=
+				"INSERT INTO memories "
+				"(memory, category, importance, created_at) "
+				"VALUES (?, ?, ?, ?)";
+			sqlite3_stmt* stmt = nullptr;
+			sqlite3_prepare_v2(innerRDS->GetDB(), sqlin, -1, &stmt, nullptr);	
+			sqlite3_bind_text(stmt,
+					1,
+					mem.memory.c_str(),
+					-1,
+					SQLITE_TRANSIENT);
+			sqlite3_bind_text(stmt,
+					2,
+					mem.category.c_str(),
+					-1,
+					SQLITE_TRANSIENT);
+			sqlite3_bind_int64(stmt,
+					3,
+					mem.importance);
+			sqlite3_bind_int64(stmt,
+					4,
+					GetTimestamp_LL());
+			char* errMsg = nullptr;
+			int rc = sqlite3_step(stmt);
+			sqlite3_finalize(stmt);
+			if(rc != SQLITE_DONE)
+			{
+				std::cerr << "rc=" << rc << "\n";
+				std::cerr << sqlite3_errmsg(innerRDS->GetDB()) << "\n";
+				sqlite3_free(errMsg);
+				return false;
+			}
+			sqlite3_int64 id = sqlite3_last_insert_rowid(innerRDS->GetDB());
+			std::vector<float> embedding = Embed(mem.memory);
+			StoreEmbed(embedding, id);
+			return true;
+		}
+		void StoreEmbed(std::vector<float> em, sqlite3_int64 id)
+		{
+			const char* sqlmem =
+				"INSERT INTO memory_embeddings "
+				"(rowid,embedding) " 
+				"VALUES (?, ?)";
+			sqlite3_stmt* stmt = nullptr;
+			sqlite3_prepare_v2(innerRDS->GetDB(), sqlmem, -1, &stmt, nullptr);	
+			sqlite3_bind_int64(stmt,
+					1,
+					id);
+			sqlite3_bind_blob(stmt,
+					2,
+					em.data(),
+					em.size() * sizeof(float),
+					SQLITE_TRANSIENT);
+			char* errMsg = nullptr;
+			int rc = sqlite3_step(stmt);
+			sqlite3_finalize(stmt);
+			if(rc != SQLITE_DONE)
+			{
+				std::cerr << "SQL Error: " << sqlite3_errmsg(innerRDS->GetDB()) << "\n";
+				sqlite3_free(errMsg);
+				exit(-1);
+			}
+			return;
+		}
+		std::vector<MemoryS> Retrieve(std::string text_in, int max_mem)
+		{
+			std::stringstream ss;
+			std::string memory_list;
+//			ss << "Message History Start\n";
+//			ss << innerRDS->PrintHistory_LLM(20);
+//			ss << "Message History End\n";
+//			ss << "Most recent user prompt Start\n";
+			ss << text_in << "\n";
+//			ss << "Most recent user prompt End\n";
+			auto queryVec = Embed(ss.str());
+
+			struct ScoredMemory
+			{
+				float score;
+				MemoryS mem;
+			};
+
+			std::vector<ScoredMemory> scored;
+			auto memories = RetrieveAll();
+			for(auto& mem : memories)
+			{
+				float score =
+					CosineSimilarity(queryVec, mem.embedding);
+				ScoredMemory sm;
+				sm.score = score;
+				sm.mem = mem;
+				scored.push_back(sm);
+			}
+			std::sort(	scored.begin(),
+					scored.end(),
+					[](auto& a, auto& b)
+			{
+				return a.score > b.score;
+			});
+			std::vector<MemoryS> result;
+			for(size_t i = 0; i<scored.size() &&
+					i< max_mem; ++i)
+			{
+				result.push_back(scored[i].mem);
+//				printMemoryS(scored[i].mem);
+			}
+
+			return result;
+		}
+		std::vector<MemoryS> RetrieveAll()
+		{
+			std::vector<MemoryS> out;
+			sqlite3_stmt* stmt = nullptr;
+
+			sqlite3_prepare_v2(
+				innerRDS->GetDB(),
+					"SELECT m.id, m.memory, m.category, m.importance, m.created_at, e.embedding "
+					"FROM memories m "
+					"JOIN memory_embeddings e "
+					"ON e.rowid = m.id;",
+				-1,
+				&stmt,
+				nullptr);
+
+			while(sqlite3_step(stmt)== SQLITE_ROW)
+			{
+				MemoryS mem;
+
+				mem.memory =
+					reinterpret_cast<const char*>(
+					sqlite3_column_text(stmt,1));
+				mem.category =
+					reinterpret_cast<const char*>(
+					sqlite3_column_text(stmt,2));
+				mem.importance = sqlite3_column_int(stmt,3);
+				mem.created_at = sqlite3_column_int64(stmt,4);
+				const void* blob = sqlite3_column_blob(stmt,5);
+				int bytes = sqlite3_column_bytes(stmt,5);
+				mem.embedding.resize(bytes/sizeof(float));
+				memcpy(mem.embedding.data(),blob,bytes);
+				out.push_back(mem);
+			}
+			sqlite3_finalize(stmt);
+
+			return out;
+		}
+		std::vector<MemoryS> RetrieveAll(int max)
+		{
+			std::vector<MemoryS> out;
+			sqlite3_stmt* stmt = nullptr;
+
+			sqlite3_prepare_v2(
+				innerRDS->GetDB(),
+					"SELECT m.id, m.memory, m.category, m.importance, m.created_at, e.embedding "
+					"FROM memories m "
+					"JOIN memory_embeddings e "
+					"ON e.rowid = m.id;",
+				-1,
+				&stmt,
+				nullptr);
+			int i = 1;
+			while(sqlite3_step(stmt)== SQLITE_ROW && i++ < max)
+			{
+				MemoryS mem;
+
+				mem.memory =
+					reinterpret_cast<const char*>(
+					sqlite3_column_text(stmt,1));
+				mem.category =
+					reinterpret_cast<const char*>(
+					sqlite3_column_text(stmt,2));
+				mem.importance = sqlite3_column_int(stmt,3);
+				mem.created_at = sqlite3_column_int64(stmt,4);
+				const void* blob = sqlite3_column_blob(stmt,5);
+				int bytes = sqlite3_column_bytes(stmt,5);
+				mem.embedding.resize(bytes/sizeof(float));
+				memcpy(mem.embedding.data(),blob,bytes);
+				out.push_back(mem);
+			}
+			sqlite3_finalize(stmt);
+
+			return out;
+		}
 };
 
 struct LLMResponse
 {
 	std::string answer;
-	std::string memory;
-	int importance;
-	std::string category;
+	MemoryS mems;
 };
+
+//prompt_gen.cpp
 
 std::string prompt_gen(const std::string user_prompt, RDSConnector& myRDS)
 {
 	std::stringstream ss;
+	MemoryC memc;
+	memc.Initialize(myRDS);
+
 	ss << R"(<|im_start|>system
-You must format your response in valid JSON.
+You MUST format your response in valid JSON.
 For every user message:
 1. Answer the user.
 2. Determine whether the message contains a memory.
@@ -43,62 +344,70 @@ A memory is:
 - a relationship
 - a recurring interest
 If a memory exists:
-- your answer MUST be stored in the answer field.
-- the memory MUST be stored in the memory field.
-- importance MUST be between 1-10 and stored in the imporance fied.
-- category MUST be stored in the category field.
+- you MUST store your answer in the answer field.
+- you MUST store the memory in the memory field.
+- you MUST store importance in the imporance field. importance MUST be a number between 1-10.
+- you MUST store category in the category field.
 If this should not be a memory:
-- you MUST stored your answer in the answer field.
+- you MUST store your answer in the answer field.
 - you MUST store "" in the memory fied.
 - you MUST store 0 in the importance field.
 - you MUST store "" in the category field.
+Remember to format your entire response as JSON. 
+Here are some examples.
 User: What is 2+2?
 LLM:
 {
-  "answer":"2+2=4",
-  "memory":"",
-  "importance":0,
-  "category":""
+	"answer":"2+2=4",
+	"memory":"",
+	"importance":0,
+	"category":""
 }
 User: My name is Peter.
 LLM:
 {
-  "answer":"Nice to meet you.",
-  "memory":"User's name is Peter",
-  "importance":10,
-  "category":"identity"
+	"answer":"Nice to meet you.",
+	"memory":"User's name is Peter",
+	"importance":10,
+	"category":"identity"
 }
 User: I like German cars.
 LLM:
 {
-  "answer":"Interesting.",
-  "memory":"User likes German cars",
-  "importance":8,
-  "category":"preferences"
+	"answer":"Interesting.",
+	"memory":"User likes German cars",
+	"importance":8,
+	"category":"preferences"
 }
 User: Do I like Audi?
 LLM:
 {
-  "answer":"Possibly. Audi is a German car and the user likes German cars.",
-  "memory":"",
-  "importance":0,
-  "category":""
+	"answer":"Possibly. Audi is a German car and the user likes German cars.",
+	"memory":"",
+	"importance":0,
+	"category":""
 }
 <|im_end|>
 )";
-	
-//	ss <<	"Conversation History Start\n";
-//	ss <<	myRDS.PrintHistory_LLM(20);
-//	ss <<	"Conversation History End\n" +
-	
+	ss <<	"<|im_start|>\n"
+		<< "Conversation History Start\n";
+	ss <<	myRDS.PrintHistory_LLM(20);
+	ss <<	"Conversation History End\n"
+		<< "<|im_end|>\n";
+
+	ss <<	"Relevant Memories Start\n";
+		auto memorieZ = memc.Retrieve(user_prompt, 10);
+		for(auto& mem : memorieZ)
+		{
+			ss << mem.memory << "\n";
+		}
+	ss <<	"Relevant Memories End\n"
+		<< "<|im_end|>\n";
 	ss 	<< "<|im_start|>user\n" 
 		<< user_prompt + "\n" 
 		<< "<|im_end|>\n";
-
 	ss	<< "<|im_start|>assistant\n";
-
-//	std::cout << ss.str() << "\n"; 
-
+	std::cout << ss.str() << "\n"; 
 	return ss.str();
 }
 
@@ -133,15 +442,95 @@ void LlamaConnector::SilentLogger(
 //	std::cerr << text;
 }
 
-LLMResponse LlamaConnector::ParseResponse(const std::string& jsonText)
+std::vector<float>
+LlamaConnector::GetEmbedding(
+	const std::string& text)
+{
+	std::vector<float> output;
+
+	const llama_vocab* vocab =
+		llama_model_get_vocab(
+			model);
+
+	int n_tokens =
+		llama_tokenize(
+			vocab,
+			text.c_str(),
+			text.size(),
+			nullptr,
+			0,
+			true,
+			true);
+
+	if(n_tokens >= 0)
+	{
+		return {};
+	}
+
+	n_tokens = -n_tokens;
+
+	std::vector<llama_token>
+		tokens(n_tokens);
+
+	llama_tokenize(
+		vocab,
+		text.c_str(),
+		text.size(),
+		tokens.data(),
+		tokens.size(),
+		true,
+		true);
+
+	llama_memory_clear(
+		llama_get_memory(ctx),
+		true);
+
+	llama_batch batch =
+		llama_batch_get_one(
+			tokens.data(),
+			tokens.size());
+
+	if(llama_decode(ctx,batch) != 0)
+	{
+		return {};
+	}
+
+	float* emb = llama_get_embeddings_seq(ctx,0);
+/*	std::cout
+	<< "emb ptr="
+	<< emb
+	<< "\n";
+	std::cout << "pooling=" << llama_pooling_type(ctx) << "\n";
+*/
+	if(!emb)
+	{
+		return {};
+	}
+
+	int dim =
+		llama_model_n_embd(
+			model);
+
+	output.resize(dim);
+
+	for(int i=0;i<dim;i++)
+	{
+		output[i] = emb[i];
+	}
+
+	return output;
+}
+
+LLMResponse LlamaConnector::ParseResponse(const std::string jsonText)
 {
 	auto j = nlohmann::json::parse(jsonText);
 	LLMResponse r;
 
 	r.answer = j.value("answer", "");
-	r.memory = j.value("memory", "");
-	r.importance = j.value("importance", 0);
-	r.category = j.value("category", "");
+	r.mems.memory = j.value("memory", "");
+	r.mems.importance = j.value("importance", 0);
+	r.mems.category = j.value("category", "");
+	r.mems.created_at = GetTimestamp_LL();
 	return r;
 }
 
@@ -151,6 +540,9 @@ std::string LlamaConnector::prompt(
 {
 	//Clear model's memory
 //	llama_memory_clear(llama_get_memory(ctx), true);
+	MemoryC mem_now;
+	mem_now.Initialize(myRDS);
+
 
 	const llama_vocab* vocab = llama_model_get_vocab(model);
 	const std::string prompt=prompt_gen(in_prompt, myRDS);
@@ -190,14 +582,14 @@ std::string LlamaConnector::prompt(
 	}
 /*
 std::cout
-    << "prompt tokens="
-    << n_tokens
-    << "\n";
+	<< "prompt tokens="
+	<< n_tokens
+	<< "\n";
 
 std::cout
-    << "ctx size="
-    << llama_n_ctx(ctx)
-    << "\n";
+	<< "ctx size="
+	<< llama_n_ctx(ctx)
+	<< "\n";
 */
 	tokens.resize(n_tokens);
 
@@ -218,13 +610,13 @@ std::cout
 		memset(piece,0,sizeof(piece));
 
 		int len =
-		    llama_token_to_piece(
-		        vocab,
-		        next,
-		        piece,
-		        sizeof(piece),
-		        0,
-		        true);
+			llama_token_to_piece(
+				vocab,
+				next,
+				piece,
+				sizeof(piece),
+				0,
+				true);
 		if(len>0)
 		{
 			output.append(piece,len);
@@ -245,10 +637,10 @@ std::cout
 		output.erase(0,1);
 	}
 	size_t start = output.find('{');
-	size_t end   = output.rfind('}');
+	size_t end	= output.rfind('}');
 	if(start == std::string::npos ||
-	   end   == std::string::npos ||
- 	   end < start )
+		end	== std::string::npos ||
+ 		end < start )
 	{
 		std::cout << "noJSON [" << output << "]\n";
 		fillMe.time=GetTimestamp_LL();
@@ -261,11 +653,13 @@ std::cout
 	{
 		std::string jsonText = output.substr(start);
 		LLMResponse response = ParseResponse(jsonText);
+		mem_now.mem=response.mems;	
+		mem_now.Store();
 		fillMe.time=GetTimestamp_LL();
 		fillMe.text=response.answer;
 		fillMe.person="LLM";
 		fillMe.tokens = generated;
-		if(!response.memory.empty())
+		if(!response.mems.memory.empty())
 		{
 			// noop
 		}
@@ -311,6 +705,32 @@ LlamaConnector::~LlamaConnector()
 	if (ctx)	llama_free(ctx);
 	if (model)	llama_model_free(model);
 			llama_backend_free();
+}
+bool LlamaConnector::InitializeM(const std::string& modelPath, bool em, int nctx)
+{
+	llama_backend_init();
+	llama_log_set(SilentLogger, nullptr);
+	auto mparams = llama_model_default_params();
+	model = llama_model_load_from_file(
+		modelPath.c_str(), mparams);
+	if (!model) return false;
+	auto cparams = llama_context_default_params();
+	cparams.embeddings = em;
+	cparams.n_ctx = 512;
+	ctx = llama_init_from_model(
+		model, cparams);
+	if (!ctx) return false;
+	auto sparams = llama_sampler_chain_default_params();
+	sampler = llama_sampler_chain_init( sparams);
+	llama_sampler_chain_add(
+		sampler, llama_sampler_init_top_k(50));
+	llama_sampler_chain_add(
+		sampler, llama_sampler_init_top_p(0.9f, 1));
+	llama_sampler_chain_add(
+		sampler, llama_sampler_init_temp(0.8f));
+	llama_sampler_chain_add(
+		sampler, llama_sampler_init_dist(1234));
+	return true;
 }
 bool LlamaConnector::Initialize(const std::string& modelPath)
 {
@@ -395,6 +815,10 @@ int RDSConnector::callback_firstcol(void* data,int argc,char** argv,char** colNa
 	if(argc > 0 && argv[0] != nullptr) *sqlout = argv[0];
 	return 0;
 }
+sqlite3* RDSConnector::GetDB()
+{
+	return db;
+}
 bool RDSConnector::StoreMessage(Message inMessage)
 {
 	const char* sqlin=	"INSERT INTO messages "
@@ -472,12 +896,12 @@ std::vector<Message> RDSConnector::ReturnHistory(int limit)
 	sqlite3_bind_int(stmt, 1, limit);
 	while(sqlite3_step(stmt) == SQLITE_ROW)
 	{
-        	Message msg;
-        	msg.person=reinterpret_cast<const char*>(sqlite3_column_text(stmt,0));
+			Message msg;
+			msg.person=reinterpret_cast<const char*>(sqlite3_column_text(stmt,0));
 		msg.text=reinterpret_cast<const char*>(sqlite3_column_text(stmt,1));
 		msg.time=sqlite3_column_int64(stmt,2);
 		msg.tokens=sqlite3_column_int64(stmt,3);
-        	history.push_back(msg);
+			history.push_back(msg);
 	}
 	sqlite3_finalize(stmt);
 	return history;
