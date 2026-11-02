@@ -1,0 +1,4 @@
+-- Configuring done (0.2s)
+-- Generating done (0.1s)
+-- Build files have been written to: C:/msys64/home/peter/AI_coding/directio.net/build
+ninja: no work to do.

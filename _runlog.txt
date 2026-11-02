@@ -1,0 +1,24 @@
+Script started on 2026-11-01 22:06:57-05:00 [COMMAND="./bin/directio.net.exe" TERM="xterm-256color" TTY="/dev/pty2" COLUMNS="97" LINES="46"]
+[6n[6n[?1004h[m[?25h[System         ][26-11-01 22:06:58.262] Enter prompt. "!quit" to quit.
+[Peter Berbec   ][26-11-01 22:06:58.264][1C!forget
+[?25l[H
+[45;1H[Peter Berbec   ][26-11-01 22:07:00.194] !forget[K
+[?25h[SYSTEM         ][26-11-01 22:07:00.271] Conversation history cleared.
+[Peter Berbec   ][26-11-01 22:07:00.272][1CI like Germany.
+[?25l[H
+[45;1H[Peter Berbec   ][26-11-01 22:07:04.127] I like Germany.[K
+[?25h[LLM            ][26-11-01 22:07:06.856] Interesting.
+[Peter Berbec   ][26-11-01 22:07:06.878][1CDo I like Audi?
+[?25l[H
+[45;1H[Peter Berbec   ][26-11-01 22:07:10.608] Do I like Audi?[K
+[?25h[LLM            ][26-11-01 22:07:13.137] Interesting.
+[Peter Berbec   ][26-11-01 22:07:13.147][1CDo I like Audi?
+[?25l[H
+[45;1H[Peter Berbec   ][26-11-01 22:07:25.504] Do I like Audi?[K
+[?25hterminate called after throwing an instance of 'nlohmann::json_abi_v3_12_0::detail::parse_error'[H
+[46;1H
+  what():  [json.exception.parse_error.101] parse error at line 7, column 1: syntax error while p
+[H
+[45;97Hparsing value - invalid literal; last read: '""<U+000A>}<U+000A>`'; expected end of input
+[?9001l[?1004l
+Script done on 2026-11-01 22:07:30-05:00 [COMMAND_EXIT_CODE="127"]
