@@ -18,8 +18,8 @@ int main()
 	int tokens;
 	LlamaConnector llm;
 
-//	if(!llm.Initialize("models/qwen2.5-0.5b-instruct-q4_k_m.gguf"))
-	if(!llm.Initialize("models/Qwen3.8-0.6B.Q4_K_M.gguf"))
+	if(!llm.Initialize("models/qwen2.5-0.5b-instruct-q4_k_m.gguf"))
+//	if(!llm.Initialize("models/Qwen3.8-0.6B.Q4_K_M.gguf"))
 	{
 		std::cerr << "Model failed to open\n";
 		return 5;
@@ -55,6 +55,12 @@ int main()
 			myRDS.ForgetHistory();
 			myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),
 					"Conversation history cleared.");
+			continue;
+		}
+		else if(myMessage.text.starts_with("!model"))
+		{
+			myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),
+					"TODO");
 			continue;
 		}
 		else if(myMessage.text.starts_with("!history"))

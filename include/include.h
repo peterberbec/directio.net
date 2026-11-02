@@ -31,72 +31,74 @@ struct LLMResponse
 std::string prompt_gen(const std::string user_prompt, RDSConnector& myRDS)
 {
 	std::stringstream ss;
-	ss <<	std::string(
-		"<|im_start|>system\n") +
-		"You must format your response in valid JSON.\n"+
-		"For every user message:\n" +
-		"1. Answer the user.\n" +
-		"2. Determine whether the message contains a memory.\n" +
-		"A memory is:\n" +
-		"- a preference\n" +
-		"- a personal fact\n" +
-		"- a goal\n" +
-		"- a relationship\n" +
-		"- a recurring interest\n" +
-		"If a memory exists:\n" +
-		"- your answer MUST be stored in the answer field.\n" +
-		"- the memory MUST be stored in the memory field.\n" +
-		"- importance MUST be between 1-10 and stored in the imporance fied.\n" +
-		"- category MUST be stored in the category field.\n" +
-		"If this should not be a memory:\n" +
-		"- you MUST stored your answer in the answer field.\n" +
-		"- you MUST store \"\" in the memory fied.\n" +
-		"- you MUST store 0 in the importance field.\n" +
-		"- you MUST store \"\" in the category field.\n" +
-		"User: Do I like Audo?\n" +
-		"LLM:\n" +
-		"{\n" +
-		"  \"answer\":\"4\",\n" +
-		"  \"memory\":\"\",\n" +
-		"  \"importance\":0,\n" +
-		"  \"category\":\"\"\n" +
-		"}\n" +
-		"User: My name is Peter.\n" +
-		"LLM:\n" +
-		"{\n" +
-		"  \"answer\":\"Nice to meet you.\",\n" +
-		"  \"memory\":\"User's name is Peter\",\n" +
-		"  \"importance\":10,\n" +
-		"  \"category\":\"identity\"\n" +
-		"}\n" +
-		"User: I like German cars.\n" +
-		"LLM:\n" +
-		"{\n" +
-		"  \"answer\":\"Interesting.\",\n" +
-		"  \"memory\":\"User likes German cars\",\n" +
-		"  \"importance\":8,\n" +
-		"  \"category\":\"preferences\"\n" +
-		"}\n" +
-		"LLM:\n" +
-		"{\n" +
-		"  \"answer\":\"Possibly. Audi is a German car and the user likes German cars.\",\n" +
-		"  \"memory\":\"\",\n" +
-		"  \"importance\":0,\n" +
-		"  \"category\":\"\"\n" +
-		"}\n" +
-		"User: My name is Peter.\n" +
-		"User: What is 2+2?\n" +
-		"<|im_end|>\n" + 
-		"<|im_start|>\n" +
-		"Conversation History Start\n";
-	ss <<	myRDS.PrintHistory_LLM(20);
-	ss <<	std::string(
-		"Conversation History End\n") +
-		"<|im_end|>\n"+
-		"<|im_start|>Question: " + user_prompt + "\n" +
-		"<|im_end|>\n" +
-		"<|im_start|>assistant\n";
-//	std::cout << ss.str() << "\n";
+	ss << R"(<|im_start|>system
+You must format your response in valid JSON.
+For every user message:
+1. Answer the user.
+2. Determine whether the message contains a memory.
+A memory is:
+- a preference
+- a personal fact
+- a goal
+- a relationship
+- a recurring interest
+If a memory exists:
+- your answer MUST be stored in the answer field.
+- the memory MUST be stored in the memory field.
+- importance MUST be between 1-10 and stored in the imporance fied.
+- category MUST be stored in the category field.
+If this should not be a memory:
+- you MUST stored your answer in the answer field.
+- you MUST store "" in the memory fied.
+- you MUST store 0 in the importance field.
+- you MUST store "" in the category field.
+User: What is 2+2?
+LLM:
+{
+  "answer":"2+2=4",
+  "memory":"",
+  "importance":0,
+  "category":""
+}
+User: My name is Peter.
+LLM:
+{
+  "answer":"Nice to meet you.",
+  "memory":"User's name is Peter",
+  "importance":10,
+  "category":"identity"
+}
+User: I like German cars.
+LLM:
+{
+  "answer":"Interesting.",
+  "memory":"User likes German cars",
+  "importance":8,
+  "category":"preferences"
+}
+User: Do I like Audi?
+LLM:
+{
+  "answer":"Possibly. Audi is a German car and the user likes German cars.",
+  "memory":"",
+  "importance":0,
+  "category":""
+}
+<|im_end|>
+)";
+	
+//	ss <<	"Conversation History Start\n";
+//	ss <<	myRDS.PrintHistory_LLM(20);
+//	ss <<	"Conversation History End\n" +
+	
+	ss 	<< "<|im_start|>user\n" 
+		<< user_prompt + "\n" 
+		<< "<|im_end|>\n";
+
+	ss	<< "<|im_start|>assistant\n";
+
+//	std::cout << ss.str() << "\n"; 
+
 	return ss.str();
 }
 
@@ -148,11 +150,11 @@ std::string LlamaConnector::prompt(
 			RDSConnector& myRDS, Message& fillMe)
 {
 	//Clear model's memory
-	llama_memory_clear(llama_get_memory(ctx), true);
+//	llama_memory_clear(llama_get_memory(ctx), true);
 
 	const llama_vocab* vocab = llama_model_get_vocab(model);
 	const std::string prompt=prompt_gen(in_prompt, myRDS);
-	const int MAX_GEN_TOKENS = 256;
+	const int MAX_GEN_TOKENS = 366;
 	int generated = 0;
 
 	int n_tokens =
@@ -250,7 +252,8 @@ std::cout
 	{
 		std::cout << "noJSON [" << output << "]\n";
 		fillMe.time=GetTimestamp_LL();
-		fillMe.text=output;
+		if(output.empty()) fillMe.text="[EMPTY_RESPONSE]";
+		else fillMe.text=output;
 		fillMe.person="LLM";
 		fillMe.tokens = generated;
 	}
