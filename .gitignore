@@ -2,6 +2,8 @@ build/
 *.exe
 *.dll
 *.o
+*.sh
+_*.txt
 
 data/*.db
 
