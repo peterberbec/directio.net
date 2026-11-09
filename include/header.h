@@ -63,6 +63,7 @@ class LlamaConnector
 		~LlamaConnector();
 		bool InitializeM(const std::string& modelPath, bool em, int nctx);
 		bool Initialize(const std::string& modelPath);
+		void clearModelMemory();
 };
 std::string prompt_gen(const std::string user_prompt, RDSConnector&);
 std::string GetTimestamp_STR(std::int64_t msin = 0);

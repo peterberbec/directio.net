@@ -66,7 +66,7 @@ int main()
 			myMessage.OutputMessage("!help",GetTimestamp_LL(),
 				"!history - to show all history");
 			myMessage.OutputMessage("!help",GetTimestamp_LL(),
-				"!forget  - to clear memory/conversation history");
+				"!forget  - to clear model memory, internal memory & conversation history");
 			myMessage.OutputMessage("!help",GetTimestamp_LL(),
 				"!model   - to switch models (todo)");
 			continue;
@@ -75,6 +75,7 @@ int main()
 		{
 			myRDS.ForgetHistory();
 			memc.ForgetMemories();
+			llm.clearModelMemory();	
 			myMessage.OutputMessage("!forget",GetTimestamp_LL(),
 					"Conversation history cleared.");
 			continue;
@@ -86,7 +87,8 @@ int main()
 			{
 				std::stringstream ms;
 				ms << "[" << std::setw(3) << std::setfill('0')
-				   << std::to_string(mem.importance) << "] " 
+				   << std::to_string(mem.importance) << "][" << std::setw(0)
+				   << mem.category << "] "
 				   << mem.memory;
 				myMessage.OutputMessage("!memory",GetTimestamp_LL(),
 					ms.str());
@@ -118,6 +120,7 @@ int main()
 			continue;
 		}
 		myMessage.tokens = llm.tokenize(myMessage.text);
+		llmMessage.tokens = llm.tokenize(llmMessage.text);
 		llm.prompt(myMessage.text,myRDS,llmMessage);
 		if(!myRDS.StoreMessage(myMessage))
 		{

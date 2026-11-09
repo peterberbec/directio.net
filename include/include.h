@@ -331,6 +331,7 @@ std::string prompt_gen(const std::string user_prompt, RDSConnector& myRDS)
 	std::stringstream ss;
 	MemoryC memc;
 	memc.Initialize(myRDS);
+	auto memorieZ = memc.Retrieve(user_prompt, 10);
 
 	ss << R"(<|im_start|>system
 You MUST format your response in valid JSON.
@@ -343,14 +344,30 @@ A memory is:
 - a goal
 - a relationship
 - a recurring interest
-If a memory exists:
+A memory is not:
+- a question
+- a query
+- a request
+- an inquiry
+Importance is:
+- a number between 1 and 10
+- used to give a relative ranking about memory usefulness
+Among categories a memory are the following:
+- Information
+- Interest
+- Preference
+- Family
+- Health
+- Pets
+- Propery
+If the message DOES contain a memory:
 - you MUST store your answer in the answer field.
 - you MUST store the memory in the memory field.
 - you MUST store importance in the imporance field. importance MUST be a number between 1-10.
 - you MUST store category in the category field.
-If this should not be a memory:
+If the message DOES NOT contain a memory:
 - you MUST store your answer in the answer field.
-- you MUST store "" in the memory fied.
+- you MUST store "" in the memory field.
 - you MUST store 0 in the importance field.
 - you MUST store "" in the category field.
 Remember to format your entire response as JSON. 
@@ -389,25 +406,22 @@ LLM:
 }
 <|im_end|>
 )";
-	ss <<	"<|im_start|>\n"
+	ss	<< "<|im_start|>\n"
 		<< "Conversation History Start\n";
-	ss <<	myRDS.PrintHistory_LLM(20);
-	ss <<	"Conversation History End\n"
+	ss	<< myRDS.PrintHistory_LLM(20);
+	ss	<< "Conversation History End\n"
 		<< "<|im_end|>\n";
 
-	ss <<	"Relevant Memories Start\n";
-		auto memorieZ = memc.Retrieve(user_prompt, 10);
-		for(auto& mem : memorieZ)
-		{
-			ss << mem.memory << "\n";
-		}
-	ss <<	"Relevant Memories End\n"
+	ss	<< "<|im_start|>\n"
+		<< "Relevant Memories Start\n"; for(auto& mem : memorieZ) {
+	ss	<< mem.memory << "\n"; }
+	ss	<< "Relevant Memories End\n"
 		<< "<|im_end|>\n";
 	ss 	<< "<|im_start|>user\n" 
 		<< user_prompt + "\n" 
 		<< "<|im_end|>\n";
 	ss	<< "<|im_start|>assistant\n";
-	std::cout << ss.str() << "\n"; 
+//	std::cout << ss.str() << "\n"; 
 	return ss.str();
 }
 
@@ -496,12 +510,7 @@ LlamaConnector::GetEmbedding(
 	}
 
 	float* emb = llama_get_embeddings_seq(ctx,0);
-/*	std::cout
-	<< "emb ptr="
-	<< emb
-	<< "\n";
-	std::cout << "pooling=" << llama_pooling_type(ctx) << "\n";
-*/
+
 	if(!emb)
 	{
 		return {};
@@ -534,12 +543,17 @@ LLMResponse LlamaConnector::ParseResponse(const std::string jsonText)
 	return r;
 }
 
+void LlamaConnector::clearModelMemory()
+{
+	llama_memory_clear(llama_get_memory(ctx), true);
+	return;
+}
 std::string LlamaConnector::prompt(
 			const std::string& in_prompt,
 			RDSConnector& myRDS, Message& fillMe)
 {
-	//Clear model's memory
-//	llama_memory_clear(llama_get_memory(ctx), true);
+//	Clear model's memory
+	clearModelMemory();
 	MemoryC mem_now;
 	mem_now.Initialize(myRDS);
 
