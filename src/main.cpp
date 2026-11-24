@@ -39,7 +39,7 @@ int main()
 	if(err) 
 	{
 		std::cerr << err << "\n";
-		return 10
+		return 10;
 	}
 	MemoryC memc;
 	memc.Initialize(myRDS);
