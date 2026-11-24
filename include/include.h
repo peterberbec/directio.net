@@ -535,11 +535,27 @@ LLMResponse LlamaConnector::ParseResponse(const std::string jsonText)
 	auto j = nlohmann::json::parse(jsonText);
 	LLMResponse r;
 
-	r.answer = j.value("answer", "");
-	r.mems.memory = j.value("memory", "");
-	r.mems.importance = j.value("importance", 0);
-	r.mems.category = j.value("category", "");
-	r.mems.created_at = GetTimestamp_LL();
+	try
+	{
+		r.answer = j.value("answer", "");
+		r.mems.memory = j.value("memory", "");
+		r.mems.importance = j.value("importance", 0);
+		r.mems.category = j.value("category", "");
+		r.mems.created_at = GetTimestamp_LL();
+	}
+	catch (const nlohmann::json::parse_error& e)
+	{
+		std::cerr << "Parse error: " << e.what() << '\n';
+		exit(0);
+	} /*
+	catch(const std::exception& e)
+	{
+		r.answer = jsonText;
+		r.mems.memory = "";
+		r.mems.importance = 0;
+		r.mems.category = "";
+		r.mems.created_at = GetTimestamp_LL();
+	} */
 	return r;
 }
 

@@ -6,6 +6,7 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
+#define MODEL_USED "Qwen2.5-0.5b-instruct-q4_k_m"
 
 
 int main()
@@ -41,6 +42,8 @@ int main()
 	}
 	MemoryC memc;
 	memc.Initialize(myRDS);
+	myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),
+				MODEL_USED);
 	myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),
 				"Enter prompt. \"!help\" for help.");
 	while(!exittime)
