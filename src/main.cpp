@@ -36,17 +36,16 @@ int main()
 	sqlite3_enable_load_extension(myRDS.GetDB(), 1);
 	char* err = nullptr;
 	sqlite3_load_extension(myRDS.GetDB(), "C:\\msys64\\home\\peter\\AI_coding\\directio.net\\lib\\vec0.dll", nullptr, &err);
-	if(err)
+	if(err) 
 	{
 		std::cerr << err << "\n";
+		return 10
 	}
 	MemoryC memc;
 	memc.Initialize(myRDS);
-	myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),
-				MODEL_USED);
-	myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),
-				"Enter prompt. \"!help\" for help.");
-	while(!exittime)
+	myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(), MODEL_USED);
+	myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(), "Enter prompt. \"!help\" for help.");
+	while(true)
 	{
 		myMessage.time = GetTimestamp_LL();
 		myMessage.OutputHeader(user);
@@ -55,23 +54,14 @@ int main()
 		myMessage.time = GetTimestamp_LL();
 		myMessage.OutputMessage();
 
-		if(myMessage.text.starts_with("!quit"))
-		{
-			exittime = true;
-			continue;
-		}
+		if(myMessage.text.starts_with("!quit")) break;
 		else if(myMessage.text.starts_with("!help"))
 		{
-			myMessage.OutputMessage("!help",GetTimestamp_LL(),
-				"!quit    - to exit");
-			myMessage.OutputMessage("!help",GetTimestamp_LL(),
-				"!memory  - to show all memories");
-			myMessage.OutputMessage("!help",GetTimestamp_LL(),
-				"!history - to show all history");
-			myMessage.OutputMessage("!help",GetTimestamp_LL(),
-				"!forget  - to clear model memory, internal memory & conversation history");
-			myMessage.OutputMessage("!help",GetTimestamp_LL(),
-				"!model   - to switch models (todo)");
+			myMessage.OutputMessage("!help",GetTimestamp_LL(), "!quit    - to exit");
+			myMessage.OutputMessage("!help",GetTimestamp_LL(), "!memory  - to show all memories");
+			myMessage.OutputMessage("!help",GetTimestamp_LL(), "!history - to show all history");
+			myMessage.OutputMessage("!help",GetTimestamp_LL(), "!forget  - to clear model memory, internal memory & conversation history");
+			myMessage.OutputMessage("!help",GetTimestamp_LL(), "!model   - to switch models (todo)");
 			continue;
 		}
 		else if(myMessage.text.starts_with("!forget"))
@@ -79,8 +69,7 @@ int main()
 			myRDS.ForgetHistory();
 			memc.ForgetMemories();
 			llm.clearModelMemory();	
-			myMessage.OutputMessage("!forget",GetTimestamp_LL(),
-					"Conversation history cleared.");
+			myMessage.OutputMessage("!forget",GetTimestamp_LL(), "Conversation history cleared.");
 			continue;
 		}
 		else if(myMessage.text.starts_with("!mem"))
@@ -100,39 +89,25 @@ int main()
 		}
 		else if(myMessage.text.starts_with("!model"))
 		{
-			myMessage.OutputMessage("!model",GetTimestamp_LL(),
-					"TODO");
+			myMessage.OutputMessage("!model",GetTimestamp_LL(), "TODO");
 			continue;
 		}
 		else if(myMessage.text.starts_with("!history"))
 		{
-			myMessage.OutputMessage("!history",GetTimestamp_LL(),
-					"");
+			myMessage.OutputMessage("!history",GetTimestamp_LL(),"");
 			int count = 20;
 			std::stringstream ss(myMessage.text);
 			std::string cmd;
 			ss >> cmd;
-			if(ss >> count)
-			{
-				myRDS.PrintHistory(count);
-			}
-			else
-			{
-				myRDS.PrintHistory();
-			}
+			if(ss >> count) myRDS.PrintHistory(count);
+			else myRDS.PrintHistory();
 			continue;
 		}
 		myMessage.tokens = llm.tokenize(myMessage.text);
 		llmMessage.tokens = llm.tokenize(llmMessage.text);
 		llm.prompt(myMessage.text,myRDS,llmMessage);
-		if(!myRDS.StoreMessage(myMessage))
-		{
-			return -1;
-		}
-		if(!myRDS.StoreMessage(llmMessage))
-		{
-			return -1;
-		}
+		if(!myRDS.StoreMessage(myMessage)) return -1;
+		if(!myRDS.StoreMessage(llmMessage)) return -1;
 		llmMessage.OutputMessage();
 	}
 	myMessage.OutputMessage("SYSTEM",GetTimestamp_LL(),"Goodbye");
